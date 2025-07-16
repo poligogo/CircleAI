@@ -1,0 +1,43 @@
+# 忽略編輯器和 IDE 相關檔案
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# 忽略作業系統生成檔案
+.DS_Store
+Thumbs.db
+
+# 忽略構建和打包輸出
+dist/
+build/
+*.zip
+*.crx
+
+# 忽略依賴套件
+node_modules/
+package-lock.json
+yarn.lock
+
+# 忽略日誌和臨時檔案
+*.log
+*.tmp
+temp/
+tmp/
+
+# 忽略環境變數或敏感資訊
+.env
+*.pem
+*.key
+*.cert
+
+# 忽略測試或開發相關檔案
+tests/
+coverage/
+*.test.js
+
+# 忽略個人備份檔案
+*.bak
+*.backup
+docs/
+test/
