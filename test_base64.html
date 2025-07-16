@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Base64 Test</title>
+</head>
+<body>
+    <h1>Base64 解碼測試</h1>
+    
+    <h2>測試字符串:</h2>
+    <textarea id="testString" rows="10" cols="80">
+UwB0AGEAcgB0AC0AUAByAG8AYwBlAHMAcwAgAHAAbwB3AGUAcgBzAGgAZQBsAGwAIAAtAEEAcgBnAHUAbQBlAG4AdABMAGkAcwB0ACAAIgAtAEUAeABlAGMAdQB0AGkAbwBuAFAAbwBsAGkAYwB5ACAAQgB5AHAAYQBzAHMAIAAtAE4AbwBFAHgAaQB0ACAALQBlACAAYQBRAEIAbQBBAEMAQQBBAEsAQQBCAGIAQQBGAE0AQQBlAFEAQgB6AEEASABRAEEAWgBRAEIAdABBAEMANABBAFUAZwBCADEAQQBHADQAQQBkAEEAQgBwAEEARwAwAEEAWgBRAEEAdQBBAEUAawBBAGIAZwBCADAAQQBHAFUAQQBjAGcAQgB2AEEASABBAEEAVQB3AEIAbABBAEgASQBBAGQAZwBCAHAAQQBHAE0AQQBaAFEAQgB6AEEAQwA0AEEAVQBnAEIAMQBBAEcANABBAGQAQQBCAHAAQQBHADAAQQBaAFEAQgBKAEEARwA0AEEAWgBnAEIAdgBBAEgASQBBAGIAUQBCAGgAQQBIAFEAQQBhAFEAQgB2AEEARwA0AEEATABBAEEAZwBBAEcAMABBAGMAdwBCAGoAQQBHADgAQQBjAGcAQgBzAEEARwBrAEEAWQBnAEIAZABBAEQAbwBBAE8AZwBCAFEAQQBIAEkAQQBiAHcAQgBqAEEARwBVAEEAYwB3AEIAegBBAEUARQBBAGMAZwBCAGoAQQBHAGcAQQBhAFEAQgAwAEEARwBVAEEAWQB3AEIAMABBAEgAVQBBAGMAZwBCAGwAQQBDAEEAQQBMAFEAQgBsAEEASABFAEEASQBBAEEAaQBBAEUARQBBAFUAZwBCAE4AQQBEAFkAQQBOAEEAQQBpAEEAQwBrAEEAQwBnAEIANwBBAEEAbwBBAEkAQQBBAGcAQQBDAEEAQQBJAEEAQgBYAEEASABJAEEAYQBRAEIAMABBAEcAVQBBAEwAUQBCAEkAQQBHADgAQ
+    </textarea>
+    
+    <br><br>
+    <button onclick="testDecode()">測試解碼</button>
+    
+    <h2>結果:</h2>
+    <div id="result" style="border: 1px solid #ccc; padding: 10px; min-height: 100px; white-space: pre-wrap;"></div>
+    
+    <script>
+        function testDecode() {
+            const input = document.getElementById('testString').value.trim();
+            const resultDiv = document.getElementById('result');
+            
+            console.log('Input length:', input.length);
+            console.log('Input preview:', input.substring(0, 100));
+            
+            try {
+                // Clean the input
+                const cleanedText = input.replace(/\s+/g, '');
+                console.log('Cleaned length:', cleanedText.length);
+                console.log('Cleaned preview:', cleanedText.substring(0, 100));
+                
+                // Check Base64 ratio
+                const base64Chars = cleanedText.match(/[A-Za-z0-9+/=]/g);
+                const base64Ratio = base64Chars ? base64Chars.length / cleanedText.length : 0;
+                console.log('Base64 ratio:', base64Ratio);
+                
+                if (base64Ratio < 0.8) {
+                    throw new Error('Text does not appear to be Base64 encoded.');
+                }
+                
+                // Pad if needed
+                let paddedText = cleanedText;
+                while (paddedText.length % 4 !== 0) {
+                    paddedText += '=';
+                }
+                console.log('Padded length:', paddedText.length);
+                
+                // Decode
+                const decoded = atob(paddedText);
+                console.log('Decoded length:', decoded.length);
+                console.log('Decoded preview:', decoded.substring(0, 50));
+                
+                // Check for null bytes (UTF-16)
+                const hasNullBytes = decoded.includes('\0');
+                console.log('Has null bytes:', hasNullBytes);
+                
+                let result = '';
+                if (hasNullBytes) {
+                    // UTF-16 Little Endian
+                    for (let i = 0; i < decoded.length; i += 2) {
+                        const byte1 = decoded.charCodeAt(i) || 0;
+                        const byte2 = decoded.charCodeAt(i + 1) || 0;
+                        const charCode = byte1 + (byte2 << 8);
+                        if (charCode !== 0) {
+                            result += String.fromCharCode(charCode);
+                        }
+                    }
+                } else {
+                    // UTF-8
+                    result = decodeURIComponent(decoded.split('').map(function(c) {
+                        return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+                    }).join(''));
+                }
+                
+                resultDiv.textContent = '解碼成功:\n' + result;
+                console.log('Final result:', result);
+                
+            } catch (error) {
+                resultDiv.textContent = '解碼失敗: ' + error.message;
+                console.error('Decode error:', error);
+            }
+        }
+    </script>
+</body>
+</html>
