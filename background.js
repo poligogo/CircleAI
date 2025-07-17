@@ -45,7 +45,7 @@ function keepServiceWorkerAlive() {
         console.log('CircleAI Background: Storage heartbeat completed');
       }
     });
-  }, 15000); // Every 15 seconds
+  }, 10000); // Every 10 seconds (more frequent)
 }
 
 // Start keep alive mechanism
@@ -65,11 +65,28 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 });
 
 // Create a more frequent recurring alarm
-chrome.alarms.create('circleai-keepalive', { periodInMinutes: 0.5 }); // Every 30 seconds
+chrome.alarms.create('circleai-keepalive', { periodInMinutes: 0.25 }); // Every 15 seconds
+
+// Additional keep-alive strategies
+setInterval(() => {
+  // Perform lightweight operations to keep service worker active
+  chrome.runtime.getPlatformInfo(() => {
+    console.log('CircleAI Background: Additional heartbeat completed');
+  });
+  // Update storage with timestamp
+  chrome.storage.local.set({ keepAliveTimestamp: Date.now() });
+}, 8000); // Every 8 seconds
 
 // Listen for messages from content scripts
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('CircleAI Background: Received message:', request);
+    
+    // Handle PING messages for connection health check
+    if (request.type === 'PING') {
+        console.log('CircleAI Background: Handling PING request');
+        sendResponse({ status: 'alive', timestamp: Date.now() });
+        return true;
+    }
     
     if (request.type === 'TEST_CONNECTION') {
         console.log('CircleAI Background: Handling TEST_CONNECTION request');
@@ -287,8 +304,9 @@ async function handleBase64Decode(text, tabId) {
     // Handle very long text by limiting processing
     const trimmedText = text.trim();
     
-    // Enforce strict length limit to prevent service worker termination
-    const MAX_TEXT_LENGTH = 5000;
+    // Enforce length limit to prevent service worker termination (increased for longer Base64 strings)
+    //長度限制調整
+    const MAX_TEXT_LENGTH = 20000;
     if (trimmedText.length > MAX_TEXT_LENGTH) {
       console.log(`CircleAI Background: Text too long (${trimmedText.length} chars), truncating to ${MAX_TEXT_LENGTH} characters`);
       const truncatedText = trimmedText.substring(0, MAX_TEXT_LENGTH);
@@ -380,7 +398,7 @@ async function handleBase64Decode(text, tabId) {
     let currentText = decoded;
     let maxIterations = 5; // Prevent infinite loops
     
-    while (maxIterations > 0 && isBase64(currentText) && currentText.length < 5000) {
+    while (maxIterations > 0 && isBase64(currentText) && currentText.length < 20000) {
       try {
         const nextDecoded = b64DecodeUnicode(currentText);
         if (nextDecoded === currentText) break; // No change, stop

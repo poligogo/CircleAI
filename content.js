@@ -3,6 +3,7 @@
 let lastMouseX = 0;
 let lastMouseY = 0;
 let extensionContextValid = true;
+let decodeHistory = []; // Store decode history for navigation
 
 // Check if extension context is valid and setup auto-reconnect mechanism
 function checkExtensionContext() {
@@ -28,12 +29,59 @@ function checkExtensionContext() {
         
         console.error('CircleAI Content: Extension context is invalid');
         extensionContextValid = false;
+        // Show user-friendly message about page refresh
+        showExtensionReloadNotice();
         return false;
     } catch (error) {
         console.error('CircleAI Content: Error checking extension context:', error);
         extensionContextValid = false;
+        // Show user-friendly message about page refresh
+        showExtensionReloadNotice();
         return false;
     }
+}
+
+// Show a notice when extension needs to be reconnected
+function showExtensionReloadNotice() {
+    // Only show once per page load
+    if (window.circleAIReloadNoticeShown) return;
+    window.circleAIReloadNoticeShown = true;
+    
+    const notice = document.createElement('div');
+    notice.id = 'circleai-reload-notice';
+    notice.style.position = 'fixed';
+    notice.style.top = '20px';
+    notice.style.right = '20px';
+    notice.style.zIndex = '2147483647';
+    notice.style.background = 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)';
+    notice.style.color = '#fff';
+    notice.style.padding = '15px 20px';
+    notice.style.borderRadius = '10px';
+    notice.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.3)';
+    notice.style.fontSize = '14px';
+    notice.style.fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    notice.style.maxWidth = '300px';
+    notice.style.cursor = 'pointer';
+    notice.innerHTML = `
+        <div style="font-weight: 600; margin-bottom: 8px;">🔄 CircleAI 需要重新連接</div>
+         <div style="font-size: 12px; opacity: 0.9;">請先在 chrome://extensions/ 重新載入擴展</div>
+         <div style="font-size: 11px; margin-top: 5px; opacity: 0.7;">然後點擊此通知刷新頁面</div>
+    `;
+    
+    notice.onclick = () => {
+        window.location.reload();
+    };
+    
+    document.body.appendChild(notice);
+    
+    // Auto-hide after 10 seconds
+    setTimeout(() => {
+        if (notice.parentNode) {
+            notice.style.opacity = '0';
+            notice.style.transform = 'translateX(100%)';
+            setTimeout(() => notice.remove(), 300);
+        }
+    }, 10000);
 }
 
 // Safe message sending function with retry mechanism
@@ -137,10 +185,11 @@ function showSelectionBubble(x, y, selectedText) {
         console.log('CircleAI: Text length:', selectedText.length);
         
         // Check text length before processing
-        if (selectedText.length > 5000) {
+        // 遞歸解碼的長度限制
+        if (selectedText.length > 20000) {
             console.log('CircleAI: Text too long, showing truncation warning');
-            const truncatedText = selectedText.substring(0, 5000);
-            showResult(`⚠️ 文本過長 (${selectedText.length} 字符)\n\n為確保穩定性，僅處理前 5000 字符：\n\n${truncatedText}\n\n... (已截斷)`);
+            const truncatedText = selectedText.substring(0, 20000);
+            showResult(`⚠️ 文本過長 (${selectedText.length} 字符)\n\n為確保穩定性，僅處理前 20000 字符：\n\n${truncatedText}\n\n... (已截斷)`);
             return;
         }
         
@@ -241,14 +290,64 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }
 });
 
+// Initialize the extension
+function initializeExtension() {
+    console.log('CircleAI Content: Initializing extension');
+    
+    // Check extension context immediately
+    if (!checkExtensionContext()) {
+        console.error('CircleAI Content: Extension context is invalid during initialization');
+        // Show reload notice immediately if context is invalid
+        showExtensionReloadNotice();
+        return;
+    }
+    
+    // Test initial connection
+    chrome.runtime.sendMessage({ type: 'PING' })
+        .then(response => {
+            if (response && response.status === 'alive') {
+                console.log('CircleAI: Initial connection test passed');
+                setupPeriodicChecks();
+            } else {
+                console.error('CircleAI: Initial connection test failed - no response');
+                showExtensionReloadNotice();
+            }
+        })
+        .catch(error => {
+            console.error('CircleAI: Initial connection test failed:', error);
+            showExtensionReloadNotice();
+        });
+}
+
+// Setup periodic health checks
+function setupPeriodicChecks() {
+    // Set up periodic context checking
+    setInterval(checkExtensionContext, 3000);
+    
+    // Set up connection health check
+    setInterval(() => {
+        if (extensionContextValid) {
+            chrome.runtime.sendMessage({ type: 'PING' })
+                .then(response => {
+                    if (response && response.status === 'alive') {
+                        console.log('CircleAI: Connection health check passed');
+                    }
+                })
+                .catch(error => {
+                    console.error('CircleAI: Connection health check failed:', error);
+                    extensionContextValid = false;
+                });
+        }
+    }, 5000);
+    
+    console.log('CircleAI Content: Extension initialized successfully');
+}
+
 // Extension initialized - no port connection needed
 console.log('CircleAI Content: Extension content script loaded');
 
-// Initial check
-checkExtensionContext();
-
-// Setup periodic context check (every 5 seconds)
-setInterval(checkExtensionContext, 5000);
+// Initialize the extension
+initializeExtension();
 
 // Check extension context when page becomes visible
 document.addEventListener('visibilitychange', () => {
@@ -267,7 +366,7 @@ window.addEventListener('focus', () => {
 // Function to display loading state
 function showLoadingResult(loadingText) {
     console.log('CircleAI: showLoadingResult called with text:', loadingText);
-    // Remove any existing result container only
+    // Remove any existing result container only (don't clear history)
     const existingContainer = document.getElementById('circleai-container');
     if (existingContainer) existingContainer.remove();
 
@@ -354,8 +453,18 @@ function showError(message) {
 }
 
 // Function to display the result in a floating div
-function showResult(content) {
+function showResult(content, isNewDecode = true) {
     console.log('CircleAI: showResult called with content:', content);
+    
+    // Manage decode history
+    if (isNewDecode) {
+        // Add current content to history (limit to 10 items)
+        decodeHistory.push(content);
+        if (decodeHistory.length > 10) {
+            decodeHistory.shift();
+        }
+    }
+    
     // Remove any existing result container only
     const existingContainer = document.getElementById('circleai-container');
     if (existingContainer) existingContainer.remove();
@@ -416,6 +525,8 @@ function showResult(content) {
     
     closeButton.onclick = () => {
         console.log('CircleAI: Close button clicked');
+        // Clear decode history when closing
+        decodeHistory = [];
         // Animate out before removing
         container.style.opacity = '0';
         container.style.transform = 'scale(0.8) translateY(20px)';
@@ -446,17 +557,83 @@ function showResult(content) {
     contentWrapper.style.scrollbarWidth = 'thin';
     contentWrapper.style.scrollbarColor = 'rgba(255, 255, 255, 0.3) transparent';
     
-    // Function to check if text looks like Base64
-    const isBase64Like = (text) => {
-        const base64Pattern = /^[A-Za-z0-9+\/]{20,}={0,2}$/;
-        return base64Pattern.test(text.trim());
+    // Function to check if text is valid Base64
+    const isValidBase64 = (text) => {
+        const trimmed = text.trim();
+        
+        // Basic pattern check - must be at least 40 characters for meaningful content
+        if (!/^[A-Za-z0-9+\/]{40,}={0,2}$/.test(trimmed)) {
+            return false;
+        }
+        
+        // Length must be multiple of 4
+        if (trimmed.length % 4 !== 0) {
+            return false;
+        }
+        
+        // Check padding rules
+        const paddingCount = (trimmed.match(/=/g) || []).length;
+        if (paddingCount > 2) {
+            return false;
+        }
+        
+        // If there's padding, it should only be at the end
+        if (paddingCount > 0 && !trimmed.endsWith('='.repeat(paddingCount))) {
+            return false;
+        }
+        
+        // Try to decode to verify it's valid Base64
+        try {
+            const decoded = atob(trimmed);
+            // Check if decoded content has reasonable characteristics
+            // - Should be at least 20 bytes
+            // - Should not be mostly null bytes or control characters
+            if (decoded.length < 20) {
+                return false;
+            }
+            
+            // Count printable characters
+            let printableCount = 0;
+            let nullCount = 0;
+            for (let i = 0; i < Math.min(decoded.length, 100); i++) {
+                const charCode = decoded.charCodeAt(i);
+                if (charCode === 0) {
+                    nullCount++;
+                } else if ((charCode >= 32 && charCode <= 126) || charCode === 9 || charCode === 10 || charCode === 13) {
+                    printableCount++;
+                }
+            }
+            
+            // If more than 80% are null bytes, probably not meaningful Base64
+            if (nullCount > decoded.length * 0.8) {
+                return false;
+            }
+            
+            return true;
+        } catch (e) {
+            return false;
+        }
     };
     
     // Function to extract Base64 strings from content
     const extractBase64Strings = (text) => {
-        const base64Pattern = /[A-Za-z0-9+\/]{20,}={0,2}/g;
+        // Look for longer Base64 patterns (at least 40 characters)
+        const base64Pattern = /[A-Za-z0-9+\/]{40,}={0,2}/g;
         const matches = text.match(base64Pattern) || [];
-        return matches.filter(match => isBase64Like(match));
+        
+        // Filter and validate each match
+        const validMatches = [];
+        for (const match of matches) {
+            if (isValidBase64(match)) {
+                // Avoid duplicates
+                if (!validMatches.includes(match)) {
+                    validMatches.push(match);
+                }
+            }
+        }
+        
+        // Limit to maximum 5 matches to avoid UI clutter
+        return validMatches.slice(0, 5);
     };
     
     const contentP = document.createElement('p');
@@ -476,6 +653,53 @@ function showResult(content) {
     
     contentWrapper.appendChild(header);
     contentWrapper.appendChild(contentP);
+    
+    // Add back button if there's decode history
+    if (decodeHistory.length > 1) {
+        const backButtonContainer = document.createElement('div');
+        backButtonContainer.style.marginTop = '15px';
+        backButtonContainer.style.borderTop = '1px solid rgba(255, 255, 255, 0.2)';
+        backButtonContainer.style.paddingTop = '15px';
+        
+        const backButton = document.createElement('button');
+        backButton.textContent = '← 返回上一層';
+        backButton.style.display = 'block';
+        backButton.style.width = '100%';
+        backButton.style.padding = '10px 15px';
+        backButton.style.background = 'rgba(255, 255, 255, 0.15)';
+        backButton.style.border = '1px solid rgba(255, 255, 255, 0.3)';
+        backButton.style.borderRadius = '8px';
+        backButton.style.color = '#fff';
+        backButton.style.cursor = 'pointer';
+        backButton.style.fontSize = '14px';
+        backButton.style.fontWeight = '500';
+        backButton.style.transition = 'all 0.2s ease';
+        
+        backButton.onmouseover = () => {
+            backButton.style.background = 'rgba(255, 255, 255, 0.25)';
+            backButton.style.transform = 'translateY(-1px)';
+        };
+        
+        backButton.onmouseout = () => {
+            backButton.style.background = 'rgba(255, 255, 255, 0.15)';
+            backButton.style.transform = 'translateY(0)';
+        };
+        
+        backButton.onclick = () => {
+            console.log('CircleAI: Back button clicked');
+            // Remove current item from history
+            decodeHistory.pop();
+            // Get previous content
+            const previousContent = decodeHistory[decodeHistory.length - 1];
+            if (previousContent) {
+                // Show previous content without adding to history
+                showResult(previousContent, false);
+            }
+        };
+        
+        backButtonContainer.appendChild(backButton);
+        contentWrapper.appendChild(backButtonContainer);
+    }
     
     // Check for Base64 strings and add decode buttons
     const base64Strings = extractBase64Strings(content);
@@ -519,30 +743,116 @@ function showResult(content) {
             
             decodeButton.onclick = () => {
                 console.log('CircleAI: Decode button clicked for:', base64String.substring(0, 50) + '...');
-                // Close current result window
-                container.style.opacity = '0';
-                container.style.transform = 'scale(0.8) translateY(20px)';
-                setTimeout(() => container.remove(), 300);
                 
-                // Send decode request for this specific Base64 string
+                // Show loading state in current window
                 showLoadingResult('🔄 正在解碼 Base64...');
-                chrome.runtime.sendMessage({
-                    type: 'DECODE_BASE64',
-                    text: base64String
-                }).catch(error => {
-                    console.error('CircleAI: Failed to send decode message:', error);
-                    showError('擴展連接已中斷，請重新載入頁面');
-                });
+                
+                // Send decode request with enhanced retry mechanism
+                const sendDecodeMessage = async (retries = 3) => {
+                    for (let i = 0; i < retries; i++) {
+                        try {
+                            await chrome.runtime.sendMessage({
+                                type: 'DECODE_BASE64',
+                                text: base64String
+                            });
+                            console.log('CircleAI: Decode message sent successfully');
+                            return;
+                        } catch (error) {
+                            console.error(`CircleAI: Decode message attempt ${i + 1} failed:`, error);
+                     if (i === retries - 1) {
+                         // Check if it's an extension context issue
+                         if (error.message && error.message.includes('Extension context')) {
+                             showExtensionReloadNotice();
+                             return;
+                         }
+                         showResult('⚠️ 擴展連接已中斷\n\n請嘗試以下解決方案：\n1. 重新載入此頁面 (F5)\n2. 在 chrome://extensions/ 中重新載入 CircleAI 擴展\n3. 確保擴展已正確安裝並啟用');
+                     } else {
+                         // Wait before retry
+                         await new Promise(resolve => setTimeout(resolve, 1000));
+                     }
+                        }
+                    }
+                };
+                sendDecodeMessage();
             };
             
             buttonContainer.appendChild(decodeButton);
         });
         
         contentWrapper.appendChild(buttonContainer);
-    }
-    
-    container.appendChild(closeButton);
-    container.appendChild(contentWrapper);
+     }
+     
+     // Add AI analysis button for any content
+     const aiButtonContainer = document.createElement('div');
+     aiButtonContainer.style.marginTop = '15px';
+     aiButtonContainer.style.borderTop = '1px solid rgba(255, 255, 255, 0.2)';
+     aiButtonContainer.style.paddingTop = '15px';
+     
+     const aiButton = document.createElement('button');
+     aiButton.textContent = '🤖 詢問 AI 分析此內容';
+     aiButton.style.display = 'block';
+     aiButton.style.width = '100%';
+     aiButton.style.padding = '12px 15px';
+     aiButton.style.background = 'linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)';
+     aiButton.style.border = 'none';
+     aiButton.style.borderRadius = '8px';
+     aiButton.style.color = '#fff';
+     aiButton.style.cursor = 'pointer';
+     aiButton.style.fontSize = '14px';
+     aiButton.style.fontWeight = '500';
+     aiButton.style.transition = 'all 0.2s ease';
+     aiButton.style.boxShadow = '0 2px 8px rgba(79, 172, 254, 0.3)';
+     
+     aiButton.onmouseover = () => {
+         aiButton.style.transform = 'translateY(-2px)';
+         aiButton.style.boxShadow = '0 4px 12px rgba(79, 172, 254, 0.4)';
+     };
+     
+     aiButton.onmouseout = () => {
+         aiButton.style.transform = 'translateY(0)';
+         aiButton.style.boxShadow = '0 2px 8px rgba(79, 172, 254, 0.3)';
+     };
+     
+     aiButton.onclick = () => {
+         console.log('CircleAI: AI analysis button clicked for content');
+         
+         // Show loading state in current window
+         showLoadingResult('🤖 AI 正在分析內容...');
+         
+         // Send AI analysis request with enhanced retry mechanism
+         const sendAIMessage = async (retries = 3) => {
+             for (let i = 0; i < retries; i++) {
+                 try {
+                     await chrome.runtime.sendMessage({
+                         type: 'ASK_AI',
+                         text: content
+                     });
+                     console.log('CircleAI: AI analysis message sent successfully');
+                     return;
+                 } catch (error) {
+                     console.error(`CircleAI: AI analysis message attempt ${i + 1} failed:`, error);
+                     if (i === retries - 1) {
+                         // Check if it's an extension context issue
+                         if (error.message && error.message.includes('Extension context')) {
+                             showExtensionReloadNotice();
+                             return;
+                         }
+                         showResult('⚠️ 擴展連接已中斷\n\n請嘗試以下解決方案：\n1. 重新載入此頁面 (F5)\n2. 在 chrome://extensions/ 中重新載入 CircleAI 擴展\n3. 確保擴展已正確安裝並啟用');
+                     } else {
+                         // Wait before retry
+                         await new Promise(resolve => setTimeout(resolve, 1000));
+                     }
+                 }
+             }
+         };
+         sendAIMessage();
+     };
+     
+     aiButtonContainer.appendChild(aiButton);
+     contentWrapper.appendChild(aiButtonContainer);
+     
+     container.appendChild(closeButton);
+     container.appendChild(contentWrapper);
 
     // Position container in the center of the viewport for maximum visibility
     const viewportWidth = window.innerWidth;
