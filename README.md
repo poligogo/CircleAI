@@ -26,6 +26,8 @@ CircleAI 是一個專業的網頁安全分析工具，旨在提升資訊安全�
 - **歷史導航**：解碼歷史記錄功能，可在多層解碼結果間自由導航
 - **精確驗證**：嚴格的 Base64 格式驗證，減少誤判
 - **批量處理**：單次最多檢測 5 個 Base64 字符串，避免界面混亂
+![b64Decode](https://github.com/poligogo/CircleAI/blob/main/video/b64_DecodeVideo.gif)
+
 
 ### 🛡️ 穩定性保障
 - **連接監控**：實時監控擴展連接狀態
