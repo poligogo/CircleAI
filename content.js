@@ -4,6 +4,21 @@ let lastMouseX = 0;
 let lastMouseY = 0;
 let extensionContextValid = true;
 let decodeHistory = []; // Store decode history for navigation
+let debugMode = false; // Debug mode toggle - set to true to enable console logs
+
+// Debug logging function
+function debugLog(...args) {
+    if (debugMode) {
+        console.log('CircleAI:', ...args);
+    }
+}
+
+// Debug error logging function
+function debugError(...args) {
+    if (debugMode) {
+        console.error('CircleAI:', ...args);
+    }
+}
 
 // Check if extension context is valid and setup auto-reconnect mechanism
 function checkExtensionContext() {
@@ -18,22 +33,22 @@ function checkExtensionContext() {
             try {
                 const extensionUrl = chrome.runtime.getURL('manifest.json');
                 if (extensionUrl) {
-                    console.log('CircleAI Content: Extension context is valid');
+                    debugLog('Extension context is valid');
                     extensionContextValid = true;
                     return true;
                 }
             } catch (urlError) {
-                console.error('CircleAI Content: Extension URL check failed:', urlError);
+                debugError('Extension URL check failed:', urlError);
             }
         }
         
-        console.error('CircleAI Content: Extension context is invalid');
+        debugError('Extension context is invalid');
         extensionContextValid = false;
         // Show user-friendly message about page refresh
         showExtensionReloadNotice();
         return false;
     } catch (error) {
-        console.error('CircleAI Content: Error checking extension context:', error);
+        debugError('Error checking extension context:', error);
         extensionContextValid = false;
         // Show user-friendly message about page refresh
         showExtensionReloadNotice();
@@ -90,7 +105,7 @@ function safeSendMessage(message, callback, retryCount = 0) {
     
     if (!checkExtensionContext()) {
         if (retryCount < maxRetries) {
-            console.log(`CircleAI: Extension context invalid, retrying... (${retryCount + 1}/${maxRetries})`);
+            debugLog(`Extension context invalid, retrying... (${retryCount + 1}/${maxRetries})`);
             setTimeout(() => {
                 safeSendMessage(message, callback, retryCount + 1);
             }, 1000);
@@ -104,7 +119,7 @@ function safeSendMessage(message, callback, retryCount = 0) {
     try {
         chrome.runtime.sendMessage(message, (response) => {
             if (chrome.runtime.lastError) {
-                console.error('CircleAI: Runtime error:', chrome.runtime.lastError);
+                debugError('Runtime error:', chrome.runtime.lastError);
                 
                 // If it's a context invalidated error, try to reconnect
                 if (chrome.runtime.lastError.message && 
@@ -112,7 +127,7 @@ function safeSendMessage(message, callback, retryCount = 0) {
                      chrome.runtime.lastError.message.includes('receiving end does not exist'))) {
                     
                     if (retryCount < maxRetries) {
-                        console.log(`CircleAI: Context invalidated, retrying... (${retryCount + 1}/${maxRetries})`);
+                        debugLog(`Context invalidated, retrying... (${retryCount + 1}/${maxRetries})`);
                         setTimeout(() => {
                             safeSendMessage(message, callback, retryCount + 1);
                         }, 1000);
@@ -126,10 +141,10 @@ function safeSendMessage(message, callback, retryCount = 0) {
             }
         });
     } catch (error) {
-        console.error('CircleAI: Error sending message:', error);
+        debugError('Error sending message:', error);
         
         if (retryCount < maxRetries) {
-            console.log(`CircleAI: Send error, retrying... (${retryCount + 1}/${maxRetries})`);
+            debugLog(`Send error, retrying... (${retryCount + 1}/${maxRetries})`);
             setTimeout(() => {
                 safeSendMessage(message, callback, retryCount + 1);
             }, 1000);
@@ -159,7 +174,7 @@ function showSelectionBubble(x, y, selectedText) {
     askButton.textContent = 'Ask AI';
     askButton.onclick = (e) => {
         e.stopPropagation();
-        console.log('CircleAI: Ask AI button clicked, sending message:', selectedText);
+        debugLog('Ask AI button clicked, sending message:', selectedText);
         
         // Remove bubble first, then show loading
         const bubble = document.getElementById('circleai-selection-bubble');
@@ -170,7 +185,7 @@ function showSelectionBubble(x, y, selectedText) {
         
         safeSendMessage({ type: 'ASK_AI', text: selectedText }, (response, error) => {
             if (error) {
-                console.error('CircleAI: Error:', error);
+                debugError('Error:', error);
                 showResult('⚠️ 擴展連接已中斷\n\n請嘗試以下解決方案：\n1. 重新載入此頁面 (F5)\n2. 在 chrome://extensions/ 中重新載入 CircleAI 擴展\n3. 確保擴展已正確安裝並啟用\n\n錯誤詳情：' + (error.message || error.toString()));
             }
             // Response will be handled by message listener
@@ -181,13 +196,13 @@ function showSelectionBubble(x, y, selectedText) {
     decodeButton.textContent = 'Decode';
     decodeButton.onclick = (e) => {
         e.stopPropagation();
-        console.log('CircleAI: Decode button clicked, selected text:', selectedText);
-        console.log('CircleAI: Text length:', selectedText.length);
+        debugLog('Decode button clicked, selected text:', selectedText);
+        debugLog('Text length:', selectedText.length);
         
         // Check text length before processing
         // 遞歸解碼的長度限制
         if (selectedText.length > 20000) {
-            console.log('CircleAI: Text too long, showing truncation warning');
+            debugLog('Text too long, showing truncation warning');
             const truncatedText = selectedText.substring(0, 20000);
             showResult(`⚠️ 文本過長 (${selectedText.length} 字符)\n\n為確保穩定性，僅處理前 20000 字符：\n\n${truncatedText}\n\n... (已截斷)`);
             return;
@@ -196,21 +211,21 @@ function showSelectionBubble(x, y, selectedText) {
         // Remove bubble first, then show loading
         const bubble = document.getElementById('circleai-selection-bubble');
         if (bubble) {
-            console.log('CircleAI: Removing selection bubble');
+            debugLog('Removing selection bubble');
             bubble.remove();
         }
         
         // Show loading state immediately
-        console.log('CircleAI: Showing loading state');
+        debugLog('Showing loading state');
         showLoadingResult('🔓 Decoding...');
         
-        console.log('CircleAI: Sending DECODE_BASE64 message to background');
+        debugLog('Sending DECODE_BASE64 message to background');
         safeSendMessage({ type: 'DECODE_BASE64', text: selectedText }, (response, error) => {
             if (error) {
-                console.error('CircleAI: Error sending message:', error);
+                debugError('Error sending message:', error);
                 showResult('⚠️ 擴展連接已中斷\n\n請嘗試以下解決方案：\n1. 重新載入此頁面 (F5)\n2. 在 chrome://extensions/ 中重新載入 CircleAI 擴展\n3. 確保擴展已正確安裝並啟用\n\n錯誤詳情：' + (error.message || error.toString()));
             } else {
-                console.log('CircleAI: Message sent successfully, waiting for response via message listener');
+                debugLog('Message sent successfully, waiting for response via message listener');
             }
             // Response will be handled by message listener
         });
@@ -220,7 +235,7 @@ function showSelectionBubble(x, y, selectedText) {
     regexButton.textContent = 'To RegEx';
     regexButton.onclick = (e) => {
         e.stopPropagation();
-        console.log('CircleAI: To RegEx button clicked, sending message:', selectedText);
+        debugLog('To RegEx button clicked, sending message:', selectedText);
         
         // Remove bubble first, then show loading
         const bubble = document.getElementById('circleai-selection-bubble');
@@ -231,7 +246,7 @@ function showSelectionBubble(x, y, selectedText) {
         
         safeSendMessage({ type: 'TO_REGEX', text: selectedText }, (response, error) => {
             if (error) {
-                console.error('CircleAI: Error:', error);
+                debugError('Error:', error);
                 showResult('⚠️ 擴展連接已中斷\n\n請嘗試以下解決方案：\n1. 重新載入此頁面 (F5)\n2. 在 chrome://extensions/ 中重新載入 CircleAI 擴展\n3. 確保擴展已正確安裝並啟用\n\n錯誤詳情：' + (error.message || error.toString()));
             }
             // Response will be handled by message listener
@@ -251,11 +266,11 @@ function showSelectionBubble(x, y, selectedText) {
 
 // Listen for mouse up to check for a selection
 document.addEventListener('mouseup', (e) => {
-    console.log('CircleAI: Mouse up event detected');
+    debugLog('Mouse up event detected');
     
     // Don't show bubble if clicking on existing CircleAI UI
     if (e.target.closest('#circleai-selection-bubble') || e.target.closest('#circleai-container')) {
-        console.log('CircleAI: Clicked on existing UI, ignoring');
+        debugLog('Clicked on existing UI, ignoring');
         return;
     }
 
@@ -263,14 +278,14 @@ document.addEventListener('mouseup', (e) => {
     setTimeout(() => {
         const selection = window.getSelection();
         const selectedText = selection.toString().trim();
-        console.log('CircleAI: Selected text:', selectedText);
+        debugLog('Selected text:', selectedText);
 
         if (selectedText) {
             const range = selection.getRangeAt(0);
             const rect = range.getBoundingClientRect();
             lastMouseX = e.clientX;
             lastMouseY = e.clientY;
-            console.log('CircleAI: Showing selection bubble');
+            debugLog('Showing selection bubble');
             showSelectionBubble(rect.left + rect.width / 2, rect.top, selectedText);
         } else {
             removeCircleUI();
@@ -281,22 +296,113 @@ document.addEventListener('mouseup', (e) => {
 // Simplified approach without port connections
 // Port connections are unreliable in Manifest V3 when service worker is recycled
 
-// Listen for messages from the background script to show results
+// Combined message listener for all background script messages
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-    console.log('CircleAI Content: Received message from background:', request);
+    debugLog('Content: Received message from background:', request);
+    
     if (request.type === 'SHOW_RESULT') {
-        console.log('CircleAI Content: Showing result:', request.result);
+        debugLog('Content: Showing result:', request.result);
         showResult(request.result);
+    } else if (request.type === 'CONTEXT_MENU_ACTION') {
+        debugLog('Content: Context menu action:', request.action);
+        
+        const selectedText = window.circleAISelectedText;
+        if (!selectedText) {
+            debugError('No selected text available for context menu action');
+            return;
+        }
+        
+        switch (request.action) {
+            case 'ask_ai':
+                debugLog('Context menu: Ask AI action');
+                showLoadingResult('🤖 Briefing...');
+                safeSendMessage({ type: 'ASK_AI', text: selectedText }, (response, error) => {
+                    if (error) {
+                        debugError('Error:', error);
+                        showResult('⚠️ 擴展連接已中斷\n\n請嘗試以下解決方案：\n1. 重新載入此頁面 (F5)\n2. 在 chrome://extensions/ 中重新載入 CircleAI 擴展\n3. 確保擴展已正確安裝並啟用\n\n錯誤詳情：' + (error.message || error.toString()));
+                    }
+                });
+                break;
+                
+            case 'decode_base64':
+                debugLog('Context menu: Decode Base64 action');
+                if (selectedText.length > 20000) {
+                    const truncatedText = selectedText.substring(0, 20000);
+                    showResult(`⚠️ 文本過長 (${selectedText.length} 字符)\n\n為確保穩定性，僅處理前 20000 字符：\n\n${truncatedText}\n\n... (已截斷)`);
+                    return;
+                }
+                showLoadingResult('🔓 Decoding...');
+                safeSendMessage({ type: 'DECODE_BASE64', text: selectedText }, (response, error) => {
+                    if (error) {
+                        debugError('Error:', error);
+                        showResult('⚠️ 擴展連接已中斷\n\n請嘗試以下解決方案：\n1. 重新載入此頁面 (F5)\n2. 在 chrome://extensions/ 中重新載入 CircleAI 擴展\n3. 確保擴展已正確安裝並啟用\n\n錯誤詳情：' + (error.message || error.toString()));
+                    }
+                });
+                break;
+                
+            case 'to_regex':
+                debugLog('Context menu: To RegEx action');
+                showLoadingResult('🔄 Converting to RegEx...');
+                safeSendMessage({ type: 'TO_REGEX', text: selectedText }, (response, error) => {
+                    if (error) {
+                        debugError('Error:', error);
+                        showResult('⚠️ 擴展連接已中斷\n\n請嘗試以下解決方案：\n1. 重新載入此頁面 (F5)\n2. 在 chrome://extensions/ 中重新載入 CircleAI 擴展\n3. 確保擴展已正確安裝並啟用\n\n錯誤詳情：' + (error.message || error.toString()));
+                    }
+                });
+                break;
+                
+            default:
+                debugError('Unknown context menu action:', request.action);
+        }
     }
 });
 
+// Add right-click context menu functionality
+document.addEventListener('contextmenu', (e) => {
+    const selection = window.getSelection();
+    const selectedText = selection.toString().trim();
+    
+    if (selectedText) {
+        debugLog('Right-click on selected text:', selectedText);
+        lastMouseX = e.clientX;
+        lastMouseY = e.clientY;
+        
+        // Store selected text for context menu actions
+        window.circleAISelectedText = selectedText;
+        
+        // Send message to background to update context menu
+        safeSendMessage({ 
+            type: 'UPDATE_CONTEXT_MENU', 
+            hasSelection: true,
+            text: selectedText.substring(0, 100) // Limit text for menu display
+        }, (response, error) => {
+            if (error) {
+                debugError('Error updating context menu:', error);
+            }
+        });
+    } else {
+        // Clear context menu when no selection
+        window.circleAISelectedText = null;
+        safeSendMessage({ 
+            type: 'UPDATE_CONTEXT_MENU', 
+            hasSelection: false 
+        }, (response, error) => {
+            if (error) {
+                debugError('Error clearing context menu:', error);
+            }
+        });
+    }
+});
+
+
+
 // Initialize the extension
 function initializeExtension() {
-    console.log('CircleAI Content: Initializing extension');
+    debugLog('Content: Initializing extension');
     
     // Check extension context immediately
     if (!checkExtensionContext()) {
-        console.error('CircleAI Content: Extension context is invalid during initialization');
+        debugError('Content: Extension context is invalid during initialization');
         // Show reload notice immediately if context is invalid
         showExtensionReloadNotice();
         return;
@@ -306,15 +412,15 @@ function initializeExtension() {
     chrome.runtime.sendMessage({ type: 'PING' })
         .then(response => {
             if (response && response.status === 'alive') {
-                console.log('CircleAI: Initial connection test passed');
+                debugLog('Initial connection test passed');
                 setupPeriodicChecks();
             } else {
-                console.error('CircleAI: Initial connection test failed - no response');
+                debugError('Initial connection test failed - no response');
                 showExtensionReloadNotice();
             }
         })
         .catch(error => {
-            console.error('CircleAI: Initial connection test failed:', error);
+            debugError('Initial connection test failed:', error);
             showExtensionReloadNotice();
         });
 }
@@ -330,21 +436,21 @@ function setupPeriodicChecks() {
             chrome.runtime.sendMessage({ type: 'PING' })
                 .then(response => {
                     if (response && response.status === 'alive') {
-                        console.log('CircleAI: Connection health check passed');
+                        debugLog('Connection health check passed');
                     }
                 })
                 .catch(error => {
-                    console.error('CircleAI: Connection health check failed:', error);
+                    debugError('Connection health check failed:', error);
                     extensionContextValid = false;
                 });
         }
     }, 5000);
     
-    console.log('CircleAI Content: Extension initialized successfully');
+    debugLog('Content: Extension initialized successfully');
 }
 
 // Extension initialized - no port connection needed
-console.log('CircleAI Content: Extension content script loaded');
+debugLog('Content: Extension content script loaded');
 
 // Initialize the extension
 initializeExtension();
@@ -352,20 +458,20 @@ initializeExtension();
 // Check extension context when page becomes visible
 document.addEventListener('visibilitychange', () => {
     if (!document.hidden) {
-        console.log('CircleAI: Page became visible, checking extension context');
+        debugLog('Page became visible, checking extension context');
         checkExtensionContext();
     }
 });
 
 // Check extension context when window gains focus
 window.addEventListener('focus', () => {
-    console.log('CircleAI: Window gained focus, checking extension context');
+    debugLog('Window gained focus, checking extension context');
     checkExtensionContext();
 });
 
 // Function to display loading state
 function showLoadingResult(loadingText) {
-    console.log('CircleAI: showLoadingResult called with text:', loadingText);
+    debugLog('showLoadingResult called with text:', loadingText);
     // Remove any existing result container only (don't clear history)
     const existingContainer = document.getElementById('circleai-container');
     if (existingContainer) existingContainer.remove();
@@ -454,7 +560,7 @@ function showError(message) {
 
 // Function to display the result in a floating div
 function showResult(content, isNewDecode = true) {
-    console.log('CircleAI: showResult called with content:', content);
+    debugLog('showResult called with content:', content);
     
     // Manage decode history
     if (isNewDecode) {
@@ -498,7 +604,7 @@ function showResult(content, isNewDecode = true) {
     // Add subtle inner glow
     container.style.boxShadow += ', inset 0 1px 0 rgba(255, 255, 255, 0.2)';
     
-    console.log('CircleAI: Created container element with forced styles');
+    debugLog('Created container element with forced styles');
 
     const closeButton = document.createElement('button');
     closeButton.id = 'circleai-close';
@@ -524,7 +630,7 @@ function showResult(content, isNewDecode = true) {
     closeButton.style.zIndex = '2147483648';
     
     closeButton.onclick = () => {
-        console.log('CircleAI: Close button clicked');
+        debugLog('Close button clicked');
         // Clear decode history when closing
         decodeHistory = [];
         // Animate out before removing
@@ -686,7 +792,7 @@ function showResult(content, isNewDecode = true) {
         };
         
         backButton.onclick = () => {
-            console.log('CircleAI: Back button clicked');
+            debugLog('Back button clicked');
             // Remove current item from history
             decodeHistory.pop();
             // Get previous content
@@ -742,7 +848,7 @@ function showResult(content, isNewDecode = true) {
             };
             
             decodeButton.onclick = () => {
-                console.log('CircleAI: Decode button clicked for:', base64String.substring(0, 50) + '...');
+                debugLog('Decode button clicked for:', base64String.substring(0, 50) + '...');
                 
                 // Show loading state in current window
                 showLoadingResult('🔄 正在解碼 Base64...');
@@ -755,10 +861,10 @@ function showResult(content, isNewDecode = true) {
                                 type: 'DECODE_BASE64',
                                 text: base64String
                             });
-                            console.log('CircleAI: Decode message sent successfully');
+                            debugLog('Decode message sent successfully');
                             return;
                         } catch (error) {
-                            console.error(`CircleAI: Decode message attempt ${i + 1} failed:`, error);
+                            debugError(`Decode message attempt ${i + 1} failed:`, error);
                      if (i === retries - 1) {
                          // Check if it's an extension context issue
                          if (error.message && error.message.includes('Extension context')) {
@@ -814,7 +920,7 @@ function showResult(content, isNewDecode = true) {
      };
      
      aiButton.onclick = () => {
-         console.log('CircleAI: AI analysis button clicked for content');
+         debugLog('AI analysis button clicked for content');
          
          // Show loading state in current window
          showLoadingResult('🤖 AI 正在分析內容...');
@@ -827,10 +933,10 @@ function showResult(content, isNewDecode = true) {
                          type: 'ASK_AI',
                          text: content
                      });
-                     console.log('CircleAI: AI analysis message sent successfully');
+                     debugLog('AI analysis message sent successfully');
                      return;
                  } catch (error) {
-                     console.error(`CircleAI: AI analysis message attempt ${i + 1} failed:`, error);
+                     debugError(`AI analysis message attempt ${i + 1} failed:`, error);
                      if (i === retries - 1) {
                          // Check if it's an extension context issue
                          if (error.message && error.message.includes('Extension context')) {
@@ -867,8 +973,8 @@ function showResult(content, isNewDecode = true) {
     container.style.left = `${left}px`;
     container.style.top = `${top}px`;
     
-    console.log('CircleAI: Positioning container at:', { left, top });
-    console.log('CircleAI: Adding container to body');
+    debugLog('Positioning container at:', { left, top });
+    debugLog('Adding container to body');
     document.body.appendChild(container);
     
     // Animate in after a brief delay
@@ -880,9 +986,9 @@ function showResult(content, isNewDecode = true) {
     // Verify container was added
     const addedContainer = document.getElementById('circleai-container');
     if (addedContainer) {
-        console.log('CircleAI: Container successfully added to DOM');
-        console.log('CircleAI: Container styles:', window.getComputedStyle(addedContainer));
+        debugLog('Container successfully added to DOM');
+        debugLog('Container styles:', window.getComputedStyle(addedContainer));
     } else {
-        console.error('CircleAI: Failed to add container to DOM');
+        debugError('Failed to add container to DOM');
     }
 }
